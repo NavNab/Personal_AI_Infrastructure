@@ -12,6 +12,7 @@ import { exportCommand } from './commands/export';
 import { importCommand } from './commands/import';
 import { bootstrapCommand } from './commands/bootstrap';
 import { cuesCommand } from './commands/cues';
+import { synthesizeCommand } from './commands/synthesize';
 
 const program = new Command();
 
@@ -28,5 +29,6 @@ program.addCommand(exportCommand);
 program.addCommand(importCommand);
 program.addCommand(bootstrapCommand);
 program.addCommand(cuesCommand);
+program.addCommand(synthesizeCommand);
 
 program.parse();
