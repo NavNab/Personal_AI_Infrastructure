@@ -11,6 +11,7 @@ import { getMemoryDir, CONFIG } from '../config/defaults';
 import type { Hypothesis, HypothesisStatus } from '../schema/Hypothesis';
 import { createHypothesis, isExpired } from '../schema/Hypothesis';
 import type { Cue } from '../schema/Cue';
+import { calculateSimilarity } from '../lib/extractors/SimilarityMerger';
 
 // Simple sweep result for HypothesisStore (no fact creation)
 export interface StoreSweepResult {
@@ -34,11 +35,16 @@ export class HypothesisStore {
     tags: string[] = []
   ): Hypothesis {
     // Check if similar hypothesis exists - increment observation count
-    const existing = this.findSimilar(statement);
-    if (existing) {
-      existing.observationCount += 1;
-      this.updateAll();
-      return existing;
+    const existingTimestamp = this.findSimilarTimestamp(statement);
+    if (existingTimestamp) {
+      // Read all, find by timestamp, update count, write back
+      const items = readJsonl<Hypothesis>(this.filePath);
+      const existing = items.find((h) => h.timestamp === existingTimestamp);
+      if (existing) {
+        existing.observationCount += 1;
+        writeJsonl(this.filePath, items);
+        return existing;
+      }
     }
 
     const hypothesis = createHypothesis(statement, expiryDays, cues, tags);
@@ -46,12 +52,30 @@ export class HypothesisStore {
     return hypothesis;
   }
 
-  private findSimilar(statement: string): Hypothesis | undefined {
-    const hypotheses = this.list();
+  private findSimilarTimestamp(statement: string): string | undefined {
+    // Search ALL hypotheses, not just 'open' ones
+    // This prevents duplicates after promotion (validated/promoted status)
+    const hypotheses = this.list(); // No status filter
     const normalized = statement.toLowerCase().trim();
-    return hypotheses.find(
-      (h) => h.status === 'open' && h.statement.toLowerCase().trim() === normalized
+
+    // 1. Exact match first (fastest)
+    const exactMatch = hypotheses.find(
+      (h) => h.statement.toLowerCase().trim() === normalized
     );
+    if (exactMatch) return exactMatch.timestamp;
+
+    // 2. Fuzzy match using keyword similarity (threshold: 0.6)
+    // This catches semantically similar statements like:
+    // "User prefers TypeScript" vs "User prefers to use TypeScript"
+    const SIMILARITY_THRESHOLD = 0.6;
+    for (const h of hypotheses) {
+      const result = calculateSimilarity(statement, h.statement);
+      if (result.score >= SIMILARITY_THRESHOLD) {
+        return h.timestamp;
+      }
+    }
+
+    return undefined;
   }
 
   list(status?: HypothesisStatus): Hypothesis[] {

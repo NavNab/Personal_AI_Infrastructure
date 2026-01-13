@@ -12,6 +12,7 @@ import { FactStore } from '../storage/FactStore';
 import { EpisodeStore } from '../storage/EpisodeStore';
 import { HypothesisStore } from '../storage/HypothesisStore';
 import { CONFIG } from '../config/defaults';
+import { buildIndex } from '../lib/extractors/SemanticSearch';
 import type { Handoff } from '../schema/Handoff';
 import type { Hypothesis } from '../schema/Hypothesis';
 
@@ -46,10 +47,17 @@ export interface ProcessedLearning {
   observationCount: number;
 }
 
+export interface SemanticIndexResult {
+  indexed: number;
+  skipped: number;
+  errors: number;
+}
+
 export interface SessionEndResult {
   handoff: Handoff | null;
   summary: string;
   learningsProcessed: ProcessedLearning[];
+  semanticIndex?: SemanticIndexResult;
 }
 
 export async function sessionEndHook(
@@ -63,42 +71,42 @@ export async function sessionEndHook(
 
   let handoff: Handoff | null = null;
   const learningsProcessed: ProcessedLearning[] = [];
+  let semanticIndex: SemanticIndexResult | undefined;
 
   // Process learnings into hypotheses
+  // Let HypothesisStore.add() handle deduplication and persistence (DRY principle)
   if (options.learnings && options.learnings.length > 0) {
-    const existingOpen = hypothesisStore.list('open');
-
     for (const learning of options.learnings) {
-      const existing = existingOpen.find(
-        (h) => h.statement.toLowerCase() === learning.statement.toLowerCase()
+      // HypothesisStore.add() handles:
+      // 1. Finding similar existing hypotheses (exact + fuzzy match)
+      // 2. Incrementing observationCount if exists
+      // 3. Persisting changes to disk
+      // 4. Creating new hypothesis if no match
+      const hypothesis = hypothesisStore.add(
+        learning.statement,
+        CONFIG.defaultExpiryDays,
+        [], // No cues for session-end learnings
+        [learning.category, 'session-learning']
       );
 
-      let isNew: boolean;
-      let observationCount: number;
-
-      if (existing) {
-        // Reinforce existing hypothesis
-        existing.observationCount += 1;
-        observationCount = existing.observationCount;
-        isNew = false;
-      } else {
-        // Create new hypothesis with category tag
-        const hypothesis = hypothesisStore.add(
-          learning.statement,
-          CONFIG.defaultExpiryDays,
-          [], // No cues for session-end learnings
-          [learning.category, 'session-learning']
-        );
-        observationCount = hypothesis.observationCount;
-        isNew = true;
-      }
+      // observationCount === 1 means this is a new hypothesis
+      const isNew = hypothesis.observationCount === 1;
 
       learningsProcessed.push({
         statement: learning.statement,
         category: learning.category,
         isNew,
-        observationCount,
+        observationCount: hypothesis.observationCount,
       });
+    }
+
+    // Update semantic index incrementally after learnings are stored
+    // This ensures new learnings are immediately searchable
+    try {
+      semanticIndex = await buildIndex({ force: false, verbose: false });
+    } catch (err) {
+      // Silently fail - Ollama might not be running
+      // Index can be rebuilt later with: pai-memory semantic --build
     }
   }
 
@@ -130,7 +138,7 @@ export async function sessionEndHook(
     learningsProcessed: learningsProcessed.length,
   });
 
-  return { handoff, summary, learningsProcessed };
+  return { handoff, summary, learningsProcessed, semanticIndex };
 }
 
 /**
@@ -147,6 +155,10 @@ export function formatSessionEndSummary(result: SessionEndResult): string {
       const status = l.isNew ? 'NEW' : `+1 (${l.observationCount} total)`;
       lines.push(`  [${l.category}] ${l.statement} - ${status}`);
     }
+  }
+
+  if (result.semanticIndex) {
+    lines.push(`\nSemantic index: ${result.semanticIndex.indexed} indexed, ${result.semanticIndex.skipped} skipped`);
   }
 
   if (result.handoff) {

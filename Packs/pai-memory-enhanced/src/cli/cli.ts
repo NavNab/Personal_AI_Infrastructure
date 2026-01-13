@@ -13,20 +13,36 @@ import { importCommand } from './commands/import';
 import { bootstrapCommand } from './commands/bootstrap';
 import { cuesCommand } from './commands/cues';
 import { synthesizeCommand } from './commands/synthesize';
+import { listCommand } from './commands/list';
+import { statsCommand } from './commands/stats';
+import { promoteCommand } from './commands/promote';
+import { searchCommand } from './commands/search';
+import { semanticCommand } from './commands/semantic';
 
 const program = new Command();
 
 program
   .name('pai-memory')
   .description('PAI Memory Enhanced - Cross-LLM memory system with validation')
-  .version('2.0.0');
+  .version('3.0.0');
 
-// Register commands
+// Primary commands (most used)
+program.addCommand(listCommand);
+program.addCommand(statsCommand);
+program.addCommand(searchCommand);
+program.addCommand(semanticCommand);
+program.addCommand(promoteCommand);
+
+// Management commands
 program.addCommand(factCommand);
 program.addCommand(hypothesisCommand);
 program.addCommand(sweepCommand);
+
+// Import/Export
 program.addCommand(exportCommand);
 program.addCommand(importCommand);
+
+// Advanced
 program.addCommand(bootstrapCommand);
 program.addCommand(cuesCommand);
 program.addCommand(synthesizeCommand);
