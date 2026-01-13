@@ -108,24 +108,13 @@ echo "✓ CLI wrapper created at $PAI_DIR/bin/pai-arena"
 
 ```bash
 PAI_DIR="${PAI_DIR:-$HOME/.claude}"
-cd "$PAI_DIR/skills/Arena"
+cd "$PAI_DIR"
 
-# Create package.json if needed
-if [ ! -f package.json ]; then
-  cat > package.json << 'EOF'
-{
-  "name": "pai-arena",
-  "type": "module",
-  "dependencies": {
-    "commander": "^12.0.0",
-    "yaml": "^2.3.0"
-  }
-}
-EOF
-fi
+# Add Arena dependencies to global PAI package.json
+# These are added alongside other PAI dependencies
+bun add commander@^12.0.0 yaml@^2.3.0
 
-bun install
-echo "✓ Dependencies installed"
+echo "✓ Dependencies installed in $PAI_DIR/package.json"
 ```
 
 ---

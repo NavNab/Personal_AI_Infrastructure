@@ -1,12 +1,71 @@
 ---
 name: Arena
-version: 1.0.0
-description: Multi-agent orchestration with 1 DIRECTOR + N DOERs
+description: Multi-agent orchestration with 1 DIRECTOR + N DOERs. USE WHEN user says arena, multi-agent, director doer, orchestrate agents, collaborative AI, team of agents, spawn multiple agents for a mission. Coordinates specialized AI agents (architect, backend, frontend, qa, security, docs, researcher, refactorer) to accomplish complex tasks.
 ---
 
 # PAI Arena
 
 Orchestrate multiple AI agents to accomplish complex missions.
+
+---
+
+## MANDATORY: Skill Invocation
+
+When user requests multi-agent orchestration, you MUST:
+
+### Option 1: Start Web UI (Interactive)
+
+```bash
+PAI_DIR="${PAI_DIR:-$HOME/.claude}"
+bun run "$PAI_DIR/skills/Arena/web/server.ts" &
+echo "Arena Web UI: http://localhost:3850"
+```
+
+Then tell the user to open http://localhost:3850 to configure and run their mission.
+
+### Option 2: Start via CLI (Headless)
+
+```bash
+PAI_DIR="${PAI_DIR:-$HOME/.claude}"
+bun run "$PAI_DIR/skills/Arena/cli/cli.ts" start \
+  --mission "<user's mission>" \
+  --doers <comma-separated doers> \
+  --budget <turn count>
+```
+
+### Choosing DOERs
+
+Based on user's request, select appropriate DOERs:
+
+| Task Type | Recommended DOERs |
+|-----------|-------------------|
+| Build new feature | architect, backend, frontend |
+| API development | architect, backend, qa |
+| Full stack app | architect, backend, frontend, qa |
+| Security audit | security, researcher |
+| Code cleanup | refactorer, qa |
+| Documentation | docs, researcher |
+| Research task | researcher |
+
+### Example Invocations
+
+User: "Use arena to build me a CLI calculator"
+```bash
+bun run "$PAI_DIR/skills/Arena/cli/cli.ts" start \
+  --mission "Build a CLI calculator with basic arithmetic operations" \
+  --doers architect,backend,qa \
+  --budget 100
+```
+
+User: "I want multiple agents to review my authentication code"
+```bash
+bun run "$PAI_DIR/skills/Arena/cli/cli.ts" start \
+  --mission "Review authentication implementation for security and best practices" \
+  --doers security,backend,refactorer \
+  --budget 50
+```
+
+---
 
 ## Philosophy
 
