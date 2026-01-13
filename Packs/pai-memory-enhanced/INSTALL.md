@@ -143,7 +143,6 @@ Then restart your terminal and run the installation again."
   "todos": [
     {"content": "Create directory structure", "status": "pending", "activeForm": "Creating directory structure"},
     {"content": "Copy skill files", "status": "pending", "activeForm": "Copying skill files"},
-    {"content": "Install dependencies", "status": "pending", "activeForm": "Installing dependencies"},
     {"content": "Create hook wrappers", "status": "pending", "activeForm": "Creating hook wrappers"},
     {"content": "Register hooks in settings.json", "status": "pending", "activeForm": "Registering hooks"},
     {"content": "Run verification", "status": "pending", "activeForm": "Running verification"}
@@ -188,22 +187,17 @@ ls src/cli/cli.ts && echo "Correct directory" || echo "Wrong directory - navigat
 
 **Copy pack to PAI skills directory:**
 ```bash
-PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && cp package.json "$DEST_DIR/" && cp tsconfig.json "$DEST_DIR/" && echo "Skill files copied to: $DEST_DIR"
+PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && echo "Skill files copied to: $DEST_DIR"
 ```
 
-**Mark todo as completed.**
-
-### 2.3 Install Dependencies
-
-**Mark todo "Install dependencies" as in_progress.**
-
+**Note:** Dependencies (`commander`, `zod`) resolve from Bun's global cache. If you get "Module not found" errors, install globally:
 ```bash
-PAI_DIR="${PAI_DIR:-$HOME/.claude}" && cd "$PAI_DIR/skills/MemoryEnhanced" && bun install && echo "Dependencies installed"
+bun add commander zod -g
 ```
 
 **Mark todo as completed.**
 
-### 2.4 Create Hook Wrappers
+### 2.3 Create Hook Wrappers
 
 **Mark todo "Create hook wrappers" as in_progress.**
 
@@ -321,7 +315,7 @@ PAI_DIR="${PAI_DIR:-$HOME/.claude}" && chmod +x "$PAI_DIR/hooks/memory-enhanced-
 
 **Mark todo as completed.**
 
-### 2.5 Register Hooks in settings.json
+### 2.4 Register Hooks in settings.json
 
 **Mark todo "Register hooks in settings.json" as in_progress.**
 
@@ -423,7 +417,7 @@ Optional: Add alias to shell profile:
 
 1. Bun installed? Run: which bun && bun --version
 2. Skill files copied? Run: ls $PAI_DIR/skills/MemoryEnhanced/
-3. Dependencies installed? Run: cd $PAI_DIR/skills/MemoryEnhanced && bun install
+3. Global deps installed? Run: bun add commander zod -g
 4. Hook files created? Run: ls $PAI_DIR/hooks/memory-enhanced-*.ts
 5. Run the verification commands in VERIFY.md
 
@@ -458,9 +452,9 @@ $PAI_DIR/MEMORY/
 ## Troubleshooting
 
 ### "Cannot find module" errors
-Ensure dependencies are installed:
+Install dependencies globally:
 ```bash
-cd $PAI_DIR/skills/MemoryEnhanced && bun install
+bun add commander zod -g
 ```
 
 ### Hooks not firing
