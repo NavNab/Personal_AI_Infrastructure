@@ -187,7 +187,7 @@ ls src/cli/cli.ts && echo "Correct directory" || echo "Wrong directory - navigat
 
 **Copy pack to PAI skills directory:**
 ```bash
-PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && echo "Skill files copied to: $DEST_DIR"
+PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp -r src/skills "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && echo "Skill files copied to: $DEST_DIR"
 ```
 
 **Note:** Dependencies (`commander`, `zod`) resolve from Bun's global cache. If you get "Module not found" errors, install globally:
@@ -247,7 +247,18 @@ PAI_DIR="${PAI_DIR:-$HOME/.claude}" && cat > "$PAI_DIR/hooks/memory-enhanced-ses
 #!/usr/bin/env bun
 /**
  * PAI Memory Enhanced - Session End Hook
- * Creates handoff for session continuity
+ * Creates handoff for session continuity and processes learnings
+ *
+ * Input JSON format:
+ * {
+ *   "summary": "Session summary",
+ *   "learnings": [
+ *     {"statement": "User prefers dark mode", "category": "preference"},
+ *     {"statement": "Project uses TypeScript", "category": "decision"}
+ *   ]
+ * }
+ *
+ * Categories: preference, correction, decision, pattern, domain, context
  */
 
 import { join } from 'path';
@@ -258,12 +269,15 @@ const SKILL_DIR = join(PAI_DIR, 'skills', 'MemoryEnhanced');
 
 async function main() {
   try {
-    const { sessionEndHook } = await import(
+    const { sessionEndHook, formatSessionEndSummary } = await import(
       join(SKILL_DIR, 'hooks', 'SessionEnd.hook.ts')
     );
 
     const input = JSON.parse(process.argv[2] || '{}');
-    await sessionEndHook(input);
+    const result = await sessionEndHook(input);
+
+    // Output summary for PAI hook system
+    console.log(formatSessionEndSummary(result));
   } catch (error) {
     console.error('Memory enhanced session end failed:', error);
   }
