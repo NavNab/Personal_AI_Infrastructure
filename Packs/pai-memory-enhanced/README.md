@@ -85,15 +85,18 @@ For multi-LLM tracking:
 
 ## PAI Hook Integration
 
-Add to your PAI hook configuration:
+After installation via INSTALL.md, hooks are registered in `$PAI_DIR/settings.json`:
 
-```yaml
-hooks:
-  session_start:
-    - pai-memory-enhanced/hooks/SessionStart.hook.ts
-  session_end:
-    - pai-memory-enhanced/hooks/SessionEnd.hook.ts
+```json
+{
+  "hooks": {
+    "SessionStart": ["bun run $PAI_DIR/hooks/memory-enhanced-session-start.ts"],
+    "Stop": ["bun run $PAI_DIR/hooks/memory-enhanced-session-end.ts"]
+  }
+}
 ```
+
+The wrapper hooks at `$PAI_DIR/hooks/memory-enhanced-*.ts` import from the installed skill at `$PAI_DIR/skills/MemoryEnhanced/`.
 
 ## Architecture
 

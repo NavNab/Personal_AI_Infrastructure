@@ -44,7 +44,9 @@ Observation → PostContextCapture → Hypothesis (confidence: 0.2)
 - `HypothesisStore.ts` - Hypotheses with sweep
 
 ### Validation (src/validation/)
-- `ConfidenceCalculator.ts` - Frequency-based scoring
+- `FrequencyConfidenceCalculator.ts` - Frequency-based scoring
+- `FrequencyPromotionWorkflow.ts` - Promotion logic
+- `FrequencyAuditLogger.ts` - Audit logging
 - `HypothesisSweeper.ts` - Expiry and promotion
 - `CueMatcher.ts` - Context matching
 
