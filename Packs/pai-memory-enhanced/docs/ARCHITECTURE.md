@@ -61,9 +61,9 @@ Observation → PostContextCapture → Hypothesis (confidence: 0.2)
 - `ImportEngine.ts` - JSON → Memory
 - `EnvVarReader.ts` - PAI environment variables
 
-### Skills (src/skills/)
-- `PaiMemory/SKILL.md` - Skill definition with "worth keeping" guidance
-- `PaiMemory/pai-memory.ts` - CLI wrapper for explicit memory recording
+### Skill Definition (src/SKILL.md)
+- Defines `/memory-enhanced` slash command
+- Documents "worth keeping" guidance for Claude
 
 ## Confidence Algorithm
 

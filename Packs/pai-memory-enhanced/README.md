@@ -61,14 +61,13 @@ bun run src/cli/cli.ts export -o memory-backup.json
 | `bootstrap` | Show session context |
 | `cues` | List cue triggers |
 
-## /pai-memory Skill
+## /memory-enhanced Skill
 
-Invoke `/pai-memory` during conversation to record observations explicitly:
+Invoke `/memory-enhanced` during conversation to record observations explicitly:
 
 ```
-/pai-memory "User prefers functional programming"
-/pai-memory --list
-/pai-memory --fact user.timezone "PST"
+/memory-enhanced "User prefers functional programming"
+/memory-enhanced --list
 ```
 
 ### What's "Worth Keeping"?
@@ -81,7 +80,7 @@ Invoke `/pai-memory` during conversation to record observations explicitly:
 | Patterns | Volatile data |
 | Domain knowledge | Implementation details |
 
-See `src/skills/PaiMemory/SKILL.md` for detailed guidance.
+See `src/SKILL.md` for detailed guidance.
 
 ## Confidence System
 

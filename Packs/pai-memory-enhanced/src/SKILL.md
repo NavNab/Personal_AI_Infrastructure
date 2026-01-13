@@ -1,15 +1,15 @@
 ---
-name: pai-memory
-description: Record observations, preferences, and learnings to PAI Memory Enhanced. USE WHEN user states preferences, corrects you, makes decisions, or reveals patterns worth remembering across sessions.
+name: memory-enhanced
+description: Record observations, preferences, and learnings to PAI Memory. USE WHEN user states preferences, corrects you, makes decisions, or reveals patterns worth remembering across sessions.
 ---
 
-# /pai-memory - Memory Recording Skill
+# /memory-enhanced - Memory Recording Skill
 
 **Records observations during conversations for cross-session memory.**
 
 ## When to Use
 
-Invoke `/pai-memory` when you observe something **worth keeping** - information that should persist beyond this session.
+Invoke `/memory-enhanced` when you observe something **worth keeping** - information that should persist beyond this session.
 
 ## What Defines "Worth Keeping"
 
@@ -37,9 +37,9 @@ Invoke `/pai-memory` when you observe something **worth keeping** - information 
 ## Usage
 
 ```
-/pai-memory "User prefers functional programming patterns"
-/pai-memory "Project uses pnpm, not npm"
-/pai-memory "User's timezone is PST"
+/memory-enhanced "User prefers functional programming patterns"
+/memory-enhanced "Project uses pnpm, not npm"
+/memory-enhanced "User's timezone is PST"
 ```
 
 ## Confidence Mechanics
@@ -53,29 +53,37 @@ Invoke `/pai-memory` when you observe something **worth keeping** - information 
 
 | Method | When | How |
 |--------|------|-----|
-| **Explicit** (`/pai-memory`) | Claude notices something worth keeping | Invoke this skill |
+| **Explicit** (`/memory-enhanced`) | Claude notices something worth keeping | Invoke this skill |
 | **Automatic** (Stop hook) | Session ends | Extracts learnings from conversation |
 
 ## Examples in Practice
 
 **User says:** "I hate when code has too many comments"
-**Action:** `/pai-memory "User prefers minimal code comments"`
+**Action:** `/memory-enhanced "User prefers minimal code comments"`
 
 **User corrects:** "Actually, we use kebab-case for file names, not camelCase"
-**Action:** `/pai-memory "Project uses kebab-case file naming convention"`
+**Action:** `/memory-enhanced "Project uses kebab-case file naming convention"`
 
 **Pattern observed:** User has asked for TypeScript 3 times in a row
-**Action:** `/pai-memory "User defaults to TypeScript for new code"`
+**Action:** `/memory-enhanced "User defaults to TypeScript for new code"`
 
 **User mentions:** "I'm currently debugging the auth flow"
 **Action:** DON'T record - temporary session context
 
-## Integration
-
-This skill wraps the PAI Memory Enhanced CLI:
+## CLI Commands
 
 ```bash
-bun run $PAI_DIR/skills/MemoryEnhanced/cli/cli.ts hypothesis "<observation>"
+# Add/reinforce hypothesis
+bun run $PAI_DIR/skills/MemoryEnhanced/cli/cli.ts hypothesis "observation"
+
+# List hypotheses
+bun run $PAI_DIR/skills/MemoryEnhanced/cli/cli.ts hypothesis --list
+
+# Add validated fact directly
+bun run $PAI_DIR/skills/MemoryEnhanced/cli/cli.ts fact "domain.key" "value"
+
+# List facts
+bun run $PAI_DIR/skills/MemoryEnhanced/cli/cli.ts fact --list
 ```
 
 Hypotheses that reach high confidence via repeated observation automatically promote to facts.

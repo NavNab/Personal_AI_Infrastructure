@@ -187,7 +187,7 @@ ls src/cli/cli.ts && echo "Correct directory" || echo "Wrong directory - navigat
 
 **Copy pack to PAI skills directory:**
 ```bash
-PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp -r src/skills "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && echo "Skill files copied to: $DEST_DIR"
+PAI_DIR="${PAI_DIR:-$HOME/.claude}" && DEST_DIR="$PAI_DIR/skills/MemoryEnhanced" && rm -rf "$DEST_DIR" && mkdir -p "$DEST_DIR" && cp -r src/cli "$DEST_DIR/" && cp -r src/schema "$DEST_DIR/" && cp -r src/storage "$DEST_DIR/" && cp -r src/validation "$DEST_DIR/" && cp -r src/hooks "$DEST_DIR/" && cp -r src/export "$DEST_DIR/" && cp -r src/config "$DEST_DIR/" && cp src/index.ts "$DEST_DIR/" && cp src/SKILL.md "$DEST_DIR/" && echo "MemoryEnhanced copied to: $DEST_DIR"
 ```
 
 **Note:** Dependencies (`commander`, `zod`) resolve from Bun's global cache. If you get "Module not found" errors, install globally:
