@@ -64,10 +64,16 @@ else
   echo "❌ Bun not installed - REQUIRED!"
 fi
 
-# Check for ElevenLabs API key
+# Check for ElevenLabs API key (env var OR .env file)
 echo ""
 echo "API Key Status:"
-[ -n "$ELEVENLABS_API_KEY" ] && echo "✓ ELEVENLABS_API_KEY: Set" || echo "⚠️  ELEVENLABS_API_KEY: NOT SET (required for voice)"
+if [ -n "$ELEVENLABS_API_KEY" ]; then
+  echo "✓ ELEVENLABS_API_KEY: Set (environment variable)"
+elif [ -f "$PAI_CHECK/.env" ] && grep -q "^ELEVENLABS_API_KEY=.\+" "$PAI_CHECK/.env"; then
+  echo "✓ ELEVENLABS_API_KEY: Set (in $PAI_CHECK/.env)"
+else
+  echo "⚠️  ELEVENLABS_API_KEY: NOT SET (required for voice)"
+fi
 
 # Check for port availability
 if lsof -i :8888 &> /dev/null; then
@@ -391,11 +397,13 @@ echo "Checking hook files..."
 [ -f "$PAI_DIR/hooks/subagent-stop-hook-voice.ts" ] && echo "✓ subagent-stop-hook-voice.ts" || echo "❌ subagent-stop-hook-voice.ts missing"
 [ -f "$PAI_DIR/hooks/lib/prosody-enhancer.ts" ] && echo "✓ prosody-enhancer.ts" || echo "❌ prosody-enhancer.ts missing"
 
-# Check API key
+# Check API key (env var OR .env file)
 echo ""
 echo "Checking configuration..."
 if [ -n "$ELEVENLABS_API_KEY" ]; then
-  echo "✓ ELEVENLABS_API_KEY is set"
+  echo "✓ ELEVENLABS_API_KEY is set (environment variable)"
+elif [ -f "$PAI_DIR/.env" ] && grep -q "^ELEVENLABS_API_KEY=.\+" "$PAI_DIR/.env"; then
+  echo "✓ ELEVENLABS_API_KEY is set (in $PAI_DIR/.env)"
 else
   echo "⚠️  ELEVENLABS_API_KEY not set (voice won't work)"
 fi

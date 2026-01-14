@@ -1,0 +1,137 @@
+# Think Tank Configuration
+# Provider preferences and settings for Arena's MultiLLM Bridge
+#
+# CRITICAL: All queries are TEXT-ONLY. No tools, no MCPs.
+# Arena runs in dangerous mode - permission prompts break the flow.
+
+version: "1.0"
+
+# Default configuration
+defaults:
+  timeout: 30000           # Max wait per provider (ms)
+  parallel: true           # Query providers simultaneously
+  claude_fallback: true    # Fall back to Claude if MultiLLM unavailable
+
+# Provider preferences by decision type
+decision_types:
+  architecture:
+    description: "System architecture and design decisions"
+    preferred_providers:
+      - claude              # Strong reasoning
+      - gemini              # Alternative perspective
+    rounds: 2               # For debate mode
+
+  security:
+    description: "Security-related decisions"
+    preferred_providers:
+      - claude              # Security awareness
+      - codex               # Code-level security
+    rounds: 2
+
+  technology:
+    description: "Technology and library choices"
+    preferred_providers:
+      - claude
+      - gemini
+      - codex
+    rounds: 1
+
+  performance:
+    description: "Performance optimization decisions"
+    preferred_providers:
+      - codex               # Implementation focus
+      - claude              # Architecture view
+    rounds: 1
+
+  general:
+    description: "General strategic questions"
+    preferred_providers:
+      - claude
+      - gemini
+    rounds: 1
+
+# Provider-specific settings
+providers:
+  claude:
+    enabled: true
+    timeout: 30000
+    prompt_style: "analytical"
+    strengths:
+      - reasoning
+      - architecture
+      - security
+
+  gemini:
+    enabled: true
+    timeout: 30000
+    prompt_style: "creative"
+    strengths:
+      - alternatives
+      - edge_cases
+      - user_experience
+
+  codex:
+    enabled: true
+    timeout: 30000
+    prompt_style: "practical"
+    strengths:
+      - implementation
+      - performance
+      - best_practices
+
+  ollama:
+    enabled: false          # Disabled by default (local, may be slow)
+    timeout: 60000
+    prompt_style: "general"
+    model: "llama3"
+
+  opencode:
+    enabled: false          # Disabled by default
+    timeout: 30000
+    prompt_style: "general"
+
+# Synthesis settings
+synthesis:
+  # How to combine multiple perspectives
+  method: "weighted"        # Options: simple, weighted, consensus
+
+  # Minimum agreement threshold for consensus
+  consensus_threshold: 0.6
+
+  # Include dissenting opinions in synthesis
+  include_dissent: true
+
+# Prompt templates (optional customization)
+prompts:
+  think:
+    template: |
+      You are participating in a strategic analysis for a software project.
+
+      QUESTION: {question}
+
+      Provide your perspective. Be specific and actionable.
+      Consider trade-offs, risks, and alternatives.
+      Keep your response focused and under 300 words.
+
+  debate_initial:
+    template: |
+      You are participating in a multi-perspective analysis.
+
+      TOPIC: {topic}
+
+      Provide your perspective on this topic. Be specific and actionable.
+      Consider trade-offs, risks, and alternatives.
+      Keep your response focused and under 300 words.
+
+  debate_followup:
+    template: |
+      You are participating in a multi-perspective analysis (Round {round}).
+
+      TOPIC: {topic}
+
+      PREVIOUS PERSPECTIVES:
+      {previous_responses}
+
+      Now respond to the other perspectives. Do you agree? Disagree?
+      What did they miss? What would you add or modify?
+      Keep your response focused and under 200 words.
