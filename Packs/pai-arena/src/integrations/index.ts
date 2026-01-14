@@ -1,16 +1,19 @@
 /**
  * Arena Integrations
  *
- * External system integrations for Arena's DIRECTOR and DOERs.
+ * External service integrations for Arena orchestration.
  */
 
 export {
   MultiLLMBridge,
-  createThinkTank,
-  detectMultiLLM,
-  type ThinkTankConfig,
+  multiLLMBridge,
+  think,
+  debate,
+  isMultiLLMAvailable,
+  type MultiLLMStatus,
+  type ProviderResponse,
   type ThinkResult,
   type DebateResult,
-  type ProviderPerspective,
-  type MultiLLMStatus,
+  type DebateRound,
+  type BridgeConfig,
 } from './MultiLLMBridge';

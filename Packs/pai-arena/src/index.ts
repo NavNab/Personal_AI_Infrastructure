@@ -11,13 +11,16 @@ export type { AgentState, AgentStatus, SessionState } from './core/Session';
 // Integrations
 export {
   MultiLLMBridge,
-  createThinkTank,
-  detectMultiLLM,
-} from './integrations/MultiLLMBridge';
+  multiLLMBridge,
+  think,
+  debate,
+  isMultiLLMAvailable,
+} from './integrations';
 export type {
-  ThinkTankConfig,
+  MultiLLMStatus,
+  ProviderResponse,
   ThinkResult,
   DebateResult,
-  ProviderPerspective,
-  MultiLLMStatus,
-} from './integrations/MultiLLMBridge';
+  DebateRound,
+  BridgeConfig,
+} from './integrations';

@@ -1,566 +1,523 @@
 /**
- * MultiLLMBridge - Text-only adapter for Arena's Think Tank
+ * MultiLLMBridge - Text-only adapter for Arena DIRECTOR to consult multiple LLMs
  *
- * Provides cognitive diversity for DIRECTOR's strategic decisions.
- * CRITICAL: All queries are TEXT-ONLY. No tools, no MCPs, no permission prompts.
+ * This bridge allows the DIRECTOR to gather cognitive diversity from multiple
+ * LLM providers BEFORE making strategic decisions. DOERs remain Claude-only
+ * in dangerous mode.
  *
- * Arena runs in dangerous mode (fully autonomous). If MultiLLM queries trigger
- * permission prompts, it breaks the entire flow.
+ * CRITICAL CONSTRAINTS:
+ * - TEXT-ONLY queries (stdin/stdout)
+ * - NO tools, NO MCPs, NO permissions
+ * - NO breaking dangerous mode flow
+ * - Graceful fallback to Claude-only if MultiLLM not installed
+ *
+ * Architecture:
+ *   ARENA Mission Running
+ *          |
+ *          v
+ *   DIRECTOR hits strategic decision
+ *   "JWT vs Sessions? Which library?"
+ *          |
+ *          v
+ *   +-------------------------------------+
+ *   | MultiLLMBridge (TEXT-ONLY)          |
+ *   |                                     |
+ *   | -> Claude: "JWT for stateless..."   |
+ *   | -> Gemini: "Consider refresh..."    |
+ *   | -> Codex: "Use proven library..."   |
+ *   |                                     |
+ *   | -> Synthesis returned to DIRECTOR   |
+ *   +-------------------------------------+
+ *          |
+ *          v
+ *   DIRECTOR decides, DOERs execute
+ *   (Claude dangerous mode, uninterrupted)
  */
 
 import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { $ } from 'bun';
 
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
-
-export interface ThinkTankConfig {
-  /** Maximum time to wait for a provider response (ms) */
-  timeout: number;
-  /** Whether to run queries in parallel */
-  parallel: boolean;
-  /** Preferred providers for think tank queries */
-  preferredProviders: string[];
-  /** Default to Claude-only if MultiLLM unavailable */
-  claudeFallback: boolean;
-}
-
-export interface ProviderPerspective {
-  provider: string;
-  response: string;
-  durationMs: number;
-  success: boolean;
-  error?: string;
-}
-
-export interface ThinkResult {
-  question: string;
-  perspectives: ProviderPerspective[];
-  synthesis?: string;
-  totalDurationMs: number;
-  providersQueried: number;
-  providersResponded: number;
-}
-
-export interface DebateResult {
-  topic: string;
-  rounds: Array<{
-    round: number;
-    perspectives: ProviderPerspective[];
-  }>;
-  synthesis: string;
-  conclusion: string;
-  totalDurationMs: number;
-}
-
+// MultiLLM detection result
 export interface MultiLLMStatus {
   available: boolean;
-  teamFile?: string;
   providers: string[];
-  error?: string;
+  teamFilePath: string;
 }
 
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
+// Provider response
+export interface ProviderResponse {
+  provider: string;
+  response: string;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+}
 
-const PAI_DIR = process.env.PAI_DIR || `${process.env.HOME}/.claude`;
-const TEAM_FILE = `${PAI_DIR}/config/team.yaml`;
+// Think result - single strategic question
+export interface ThinkResult {
+  question: string;
+  providers: string[];
+  responses: ProviderResponse[];
+  synthesis: string;
+  fallbackUsed: boolean;
+  durationMs: number;
+}
 
-const DEFAULT_CONFIG: ThinkTankConfig = {
-  timeout: 30000,
-  parallel: true,
-  preferredProviders: ['claude', 'gemini', 'codex'],
-  claudeFallback: true,
+// Debate round
+export interface DebateRound {
+  roundNumber: number;
+  topic: string;
+  responses: ProviderResponse[];
+}
+
+// Debate result - multi-round perspective gathering
+export interface DebateResult {
+  topic: string;
+  rounds: DebateRound[];
+  synthesis: string;
+  providers: string[];
+  fallbackUsed: boolean;
+  durationMs: number;
+}
+
+// Bridge configuration
+export interface BridgeConfig {
+  paiDir: string;
+  timeout: number; // ms per provider
+  maxParallel: number; // max concurrent queries
+  preferredProviders?: string[]; // order preference
+}
+
+const DEFAULT_CONFIG: BridgeConfig = {
+  paiDir: process.env.PAI_DIR || join(process.env.HOME || '', '.claude'),
+  timeout: 30000, // 30s
+  maxParallel: 3,
 };
 
-// -----------------------------------------------------------------------------
-// MultiLLMBridge Class
-// -----------------------------------------------------------------------------
-
+/**
+ * MultiLLMBridge class
+ *
+ * Provides cognitive diversity for DIRECTOR strategic decisions
+ * without breaking dangerous mode flow for DOERs.
+ */
 export class MultiLLMBridge {
-  private config: ThinkTankConfig;
-  private status: MultiLLMStatus;
+  private config: BridgeConfig;
+  private multiLLMStatus: MultiLLMStatus | null = null;
 
-  constructor(config: Partial<ThinkTankConfig> = {}) {
+  constructor(config: Partial<BridgeConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.status = this.detectMultiLLM();
   }
-
-  // ---------------------------------------------------------------------------
-  // Detection
-  // ---------------------------------------------------------------------------
 
   /**
    * Detect if MultiLLM pack is installed and configured
    */
-  private detectMultiLLM(): MultiLLMStatus {
-    // Check if team.yaml exists
-    if (!existsSync(TEAM_FILE)) {
-      return {
+  detectMultiLLM(): MultiLLMStatus {
+    if (this.multiLLMStatus) {
+      return this.multiLLMStatus;
+    }
+
+    const teamFilePath = join(this.config.paiDir, 'config', 'team.yaml');
+
+    if (!existsSync(teamFilePath)) {
+      this.multiLLMStatus = {
         available: false,
         providers: [],
-        error: 'team.yaml not found - MultiLLM pack not configured',
+        teamFilePath,
       };
+      return this.multiLLMStatus;
     }
 
     try {
-      const content = readFileSync(TEAM_FILE, 'utf-8');
-      // Simple YAML parsing for provider names
-      const providerMatches = content.match(/name:\s*(\w+)/g) || [];
-      const providers = providerMatches.map(m => m.replace('name:', '').trim());
-      const availableProviders = this.filterAvailableProviders(content, providers);
+      const content = readFileSync(teamFilePath, 'utf-8');
 
-      return {
-        available: availableProviders.length > 0,
-        teamFile: TEAM_FILE,
-        providers: availableProviders,
+      // Parse YAML for provider names and availability
+      const providers: string[] = [];
+
+      // Match provider blocks - handle both quoted and unquoted YAML keys
+      // Format: - "name": "claude" or - name: claude (with optional indentation)
+      const providerBlocks = content.split(/^\s*-\s+"?name"?:/m).slice(1);
+
+      for (const block of providerBlocks) {
+        // Extract name (handles: "claude" or claude)
+        const nameMatch = block.match(/^\s*"?(\w+)"?/);
+        // Extract available (handles: "available": true or available: true)
+        const availableMatch = block.match(/"?available"?:\s*(true|false)/i);
+
+        if (nameMatch && availableMatch && availableMatch[1] === 'true') {
+          providers.push(nameMatch[1]);
+        }
+      }
+
+      this.multiLLMStatus = {
+        available: providers.length > 0,
+        providers,
+        teamFilePath,
       };
     } catch (error) {
-      return {
+      this.multiLLMStatus = {
         available: false,
         providers: [],
-        error: `Failed to read team.yaml: ${error}`,
+        teamFilePath,
+      };
+    }
+
+    return this.multiLLMStatus;
+  }
+
+  /**
+   * Query a single provider with TEXT-ONLY prompt
+   * Uses shell command - no tools, no MCPs, no permissions
+   */
+  private async queryProvider(
+    provider: string,
+    prompt: string
+  ): Promise<ProviderResponse> {
+    const startTime = Date.now();
+
+    try {
+      let shellPromise;
+
+      // Use Bun shell directly with proper argument passing
+      switch (provider.toLowerCase()) {
+        case 'claude':
+          shellPromise = $`claude -p ${prompt}`.quiet();
+          break;
+        case 'codex':
+          shellPromise = $`codex -p ${prompt}`.quiet();
+          break;
+        case 'gemini':
+          shellPromise = $`gemini -p ${prompt}`.quiet();
+          break;
+        case 'ollama':
+          shellPromise = $`ollama run llama3.2 ${prompt}`.quiet();
+          break;
+        case 'opencode':
+          shellPromise = $`opencode ask ${prompt}`.quiet();
+          break;
+        default:
+          // Generic fallback
+          shellPromise = $`${provider} -p ${prompt}`.quiet();
+      }
+
+      // Add timeout using Promise.race
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), this.config.timeout);
+      });
+
+      const result = await Promise.race([shellPromise, timeoutPromise]);
+
+      return {
+        provider,
+        response: result.stdout.toString().trim(),
+        success: true,
+        durationMs: Date.now() - startTime,
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        provider,
+        response: '',
+        success: false,
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
       };
     }
   }
 
   /**
-   * Filter to only available providers
+   * Query Claude only (fallback when MultiLLM not available)
    */
-  private filterAvailableProviders(content: string, providers: string[]): string[] {
-    // Parse available: true/false for each provider
-    const available: string[] = [];
-    for (const provider of providers) {
-      // Simple regex to find provider block and check available status
-      const providerBlock = new RegExp(
-        `name:\\s*${provider}[\\s\\S]*?available:\\s*(true|false)`,
-        'i'
-      );
-      const match = content.match(providerBlock);
-      if (match && match[1].toLowerCase() === 'true') {
-        available.push(provider);
+  private async queryClaudeOnly(prompt: string): Promise<ProviderResponse> {
+    return this.queryProvider('claude', prompt);
+  }
+
+  /**
+   * Synthesize multiple provider responses into a unified insight
+   */
+  private synthesizeResponses(
+    question: string,
+    responses: ProviderResponse[]
+  ): string {
+    const successful = responses.filter((r) => r.success);
+
+    if (successful.length === 0) {
+      return 'No providers responded successfully.';
+    }
+
+    if (successful.length === 1) {
+      return successful[0].response;
+    }
+
+    // Build synthesis from multiple perspectives
+    const lines = [
+      `## Multi-LLM Synthesis for: "${question.slice(0, 50)}..."`,
+      '',
+    ];
+
+    // Add each provider's perspective
+    for (const r of successful) {
+      lines.push(`### ${r.provider.toUpperCase()} Perspective`);
+      lines.push(r.response.slice(0, 500));
+      lines.push('');
+    }
+
+    // Add common themes if multiple providers
+    if (successful.length >= 2) {
+      lines.push('### Key Themes Across Providers');
+
+      // Simple keyword extraction for common themes
+      const allWords = successful
+        .map((r) => r.response.toLowerCase())
+        .join(' ')
+        .split(/\W+/)
+        .filter((w) => w.length > 4);
+
+      const wordCounts = new Map<string, number>();
+      for (const word of allWords) {
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+      }
+
+      const commonWords = Array.from(wordCounts.entries())
+        .filter(([_, count]) => count >= successful.length)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([word]) => word);
+
+      if (commonWords.length > 0) {
+        lines.push(`Common concepts: ${commonWords.join(', ')}`);
       }
     }
-    return available;
+
+    return lines.join('\n');
   }
 
   /**
-   * Get current MultiLLM status
+   * Think - Query multiple providers for a single strategic question
+   *
+   * Use this when DIRECTOR needs cognitive diversity before a decision.
+   * Returns synthesized insights from all available providers.
+   *
+   * @param question - Strategic question to ask
+   * @param options - Optional configuration
    */
-  getStatus(): MultiLLMStatus {
-    return this.status;
+  async think(
+    question: string,
+    options: { maxProviders?: number; timeoutMs?: number } = {}
+  ): Promise<ThinkResult> {
+    const startTime = Date.now();
+    const { maxProviders = this.config.maxParallel, timeoutMs = this.config.timeout } = options;
+
+    // Detect MultiLLM availability
+    const status = this.detectMultiLLM();
+
+    let responses: ProviderResponse[];
+    let providersUsed: string[];
+    let fallbackUsed = false;
+
+    if (status.available) {
+      // Query multiple providers in parallel
+      const providers = this.config.preferredProviders?.length
+        ? this.config.preferredProviders.slice(0, maxProviders)
+        : status.providers.slice(0, maxProviders);
+
+      providersUsed = providers;
+
+      const queries = providers.map((p) => this.queryProvider(p, question));
+      responses = await Promise.all(queries);
+    } else {
+      // Fallback to Claude-only
+      fallbackUsed = true;
+      providersUsed = ['claude'];
+      responses = [await this.queryClaudeOnly(question)];
+    }
+
+    const synthesis = this.synthesizeResponses(question, responses);
+
+    return {
+      question,
+      providers: providersUsed,
+      responses,
+      synthesis,
+      fallbackUsed,
+      durationMs: Date.now() - startTime,
+    };
   }
 
   /**
-   * Check if MultiLLM is available
+   * Debate - Multi-round discussion for complex decisions
+   *
+   * Use this when DIRECTOR faces a complex architectural or strategic
+   * decision that benefits from back-and-forth perspective gathering.
+   *
+   * @param topic - Topic to debate
+   * @param rounds - Number of debate rounds (default: 2)
+   * @param options - Optional configuration
+   */
+  async debate(
+    topic: string,
+    rounds: number = 2,
+    options: { maxProviders?: number } = {}
+  ): Promise<DebateResult> {
+    const startTime = Date.now();
+    const { maxProviders = this.config.maxParallel } = options;
+
+    // Detect MultiLLM availability
+    const status = this.detectMultiLLM();
+
+    const debateRounds: DebateRound[] = [];
+    let providersUsed: string[];
+    let fallbackUsed = false;
+
+    if (status.available) {
+      providersUsed = this.config.preferredProviders?.length
+        ? this.config.preferredProviders.slice(0, maxProviders)
+        : status.providers.slice(0, maxProviders);
+    } else {
+      fallbackUsed = true;
+      providersUsed = ['claude'];
+    }
+
+    // Build context from previous rounds
+    let previousContext = '';
+
+    for (let i = 1; i <= rounds; i++) {
+      const roundPrompt = this.buildDebatePrompt(topic, i, previousContext, providersUsed);
+
+      let responses: ProviderResponse[];
+      if (fallbackUsed) {
+        responses = [await this.queryClaudeOnly(roundPrompt)];
+      } else {
+        const queries = providersUsed.map((p) => this.queryProvider(p, roundPrompt));
+        responses = await Promise.all(queries);
+      }
+
+      debateRounds.push({
+        roundNumber: i,
+        topic,
+        responses,
+      });
+
+      // Build context for next round
+      previousContext = responses
+        .filter((r) => r.success)
+        .map((r) => `${r.provider}: ${r.response.slice(0, 300)}`)
+        .join('\n\n');
+    }
+
+    // Final synthesis
+    const allResponses = debateRounds.flatMap((r) => r.responses);
+    const synthesis = this.synthesizeDebate(topic, debateRounds);
+
+    return {
+      topic,
+      rounds: debateRounds,
+      synthesis,
+      providers: providersUsed,
+      fallbackUsed,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Build debate prompt for a specific round
+   */
+  private buildDebatePrompt(
+    topic: string,
+    round: number,
+    previousContext: string,
+    providers: string[]
+  ): string {
+    if (round === 1) {
+      return `You are participating in a strategic discussion about: "${topic}"
+
+This is Round 1 of a multi-round debate. Other AI models are also participating.
+
+Share your initial perspective on this topic. Consider:
+- Key factors to evaluate
+- Potential risks and benefits
+- Your recommended approach
+
+Be concise but thorough. Your input will be synthesized with other perspectives.`;
+    }
+
+    return `You are participating in a strategic discussion about: "${topic}"
+
+This is Round ${round}. Here are perspectives from the previous round:
+
+${previousContext}
+
+Based on these perspectives, provide your refined view:
+- Do you agree or disagree with specific points?
+- What nuances or considerations are missing?
+- What is your updated recommendation?
+
+Be concise and focus on adding value to the discussion.`;
+  }
+
+  /**
+   * Synthesize multi-round debate into actionable insights
+   */
+  private synthesizeDebate(topic: string, rounds: DebateRound[]): string {
+    const lines = [
+      `## Debate Synthesis: "${topic.slice(0, 50)}..."`,
+      '',
+    ];
+
+    // Summarize each round
+    for (const round of rounds) {
+      lines.push(`### Round ${round.roundNumber}`);
+      const successful = round.responses.filter((r) => r.success);
+      for (const r of successful) {
+        lines.push(`**${r.provider}**: ${r.response.slice(0, 200)}...`);
+      }
+      lines.push('');
+    }
+
+    // Final recommendation
+    lines.push('### Key Takeaways');
+
+    const lastRound = rounds[rounds.length - 1];
+    const finalResponses = lastRound.responses.filter((r) => r.success);
+
+    if (finalResponses.length > 0) {
+      lines.push('The final round converged on these points:');
+      for (const r of finalResponses) {
+        const firstSentence = r.response.split('.')[0];
+        lines.push(`- ${r.provider}: ${firstSentence}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Quick check if MultiLLM is available
    */
   isAvailable(): boolean {
-    return this.status.available;
+    return this.detectMultiLLM().available;
   }
 
   /**
    * Get list of available providers
    */
   getProviders(): string[] {
-    return this.status.providers;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Core Query Methods (TEXT-ONLY)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Query a single provider (TEXT-ONLY, NO TOOLS)
-   *
-   * CRITICAL: This uses stdin/stdout only. No --tools, no MCPs, no permissions.
-   */
-  private async queryProvider(
-    provider: string,
-    prompt: string
-  ): Promise<ProviderPerspective> {
-    const startTime = Date.now();
-
-    try {
-      // Build TEXT-ONLY command - NO TOOLS, NO MCPs
-      const result = await this.executeTextOnlyQuery(provider, prompt);
-      const duration = Date.now() - startTime;
-
-      return {
-        provider,
-        response: result,
-        durationMs: duration,
-        success: true,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      return {
-        provider,
-        response: '',
-        durationMs: duration,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Execute TEXT-ONLY query to a provider
-   *
-   * CRITICAL CONSTRAINT: No tools, no MCPs, stdin -> stdout only
-   */
-  private async executeTextOnlyQuery(
-    provider: string,
-    prompt: string
-  ): Promise<string> {
-    const escapedPrompt = prompt.replace(/'/g, "'\\''");
-
-    // Provider-specific TEXT-ONLY commands
-    // These commands are intentionally simple - just text in, text out
-    const commands: Record<string, string> = {
-      claude: `claude -p '${escapedPrompt}' --output-format text`,
-      gemini: `gemini -p '${escapedPrompt}'`,
-      codex: `codex -p '${escapedPrompt}'`,
-      ollama: `ollama run llama3 '${escapedPrompt}'`,
-      opencode: `opencode chat '${escapedPrompt}'`,
-    };
-
-    const cmd = commands[provider.toLowerCase()];
-    if (!cmd) {
-      throw new Error(`Unknown provider: ${provider}`);
-    }
-
-    // Execute with timeout
-    const timeoutMs = this.config.timeout;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const result = await $`sh -c ${cmd}`.quiet();
-      clearTimeout(timeout);
-      return result.stdout.toString().trim();
-    } catch (error: unknown) {
-      clearTimeout(timeout);
-      // Check if it's an AbortError
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Provider ${provider} timed out after ${timeoutMs}ms`);
-      }
-      // Return stdout if available even on error (some CLIs exit non-zero but have output)
-      if (error && typeof error === 'object' && 'stdout' in error) {
-        const stdout = (error as { stdout: Buffer }).stdout.toString().trim();
-        if (stdout) return stdout;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Query Claude directly (fallback when MultiLLM unavailable)
-   */
-  private async queryClaudeFallback(prompt: string): Promise<ProviderPerspective> {
-    return this.queryProvider('claude', prompt);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Think Tank Methods
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Think - Query multiple providers for diverse perspectives
-   *
-   * Used by DIRECTOR for strategic decisions before assigning to DOERs.
-   *
-   * @param question - The strategic question to consider
-   * @param providers - Optional list of providers (defaults to all available)
-   * @returns ThinkResult with perspectives from multiple providers
-   */
-  async think(
-    question: string,
-    providers?: string[]
-  ): Promise<ThinkResult> {
-    const startTime = Date.now();
-
-    // Determine which providers to query
-    const targetProviders = this.selectProviders(providers);
-
-    if (targetProviders.length === 0) {
-      // Fallback to Claude-only
-      if (this.config.claudeFallback) {
-        const perspective = await this.queryClaudeFallback(question);
-        return {
-          question,
-          perspectives: [perspective],
-          totalDurationMs: Date.now() - startTime,
-          providersQueried: 1,
-          providersResponded: perspective.success ? 1 : 0,
-        };
-      }
-      throw new Error('No providers available and Claude fallback disabled');
-    }
-
-    // Query providers
-    const perspectives = this.config.parallel
-      ? await Promise.all(targetProviders.map(p => this.queryProvider(p, question)))
-      : await this.querySequentially(targetProviders, question);
-
-    const result: ThinkResult = {
-      question,
-      perspectives,
-      totalDurationMs: Date.now() - startTime,
-      providersQueried: targetProviders.length,
-      providersResponded: perspectives.filter(p => p.success).length,
-    };
-
-    // Generate synthesis if multiple perspectives
-    if (result.providersResponded > 1) {
-      result.synthesis = this.synthesizePerspectives(perspectives);
-    }
-
-    return result;
-  }
-
-  /**
-   * Debate - Multi-round discussion for complex decisions
-   *
-   * Providers respond to each other's perspectives across multiple rounds.
-   *
-   * @param topic - The topic to debate
-   * @param rounds - Number of debate rounds (default: 2)
-   * @param providers - Optional list of providers
-   * @returns DebateResult with full debate transcript and conclusion
-   */
-  async debate(
-    topic: string,
-    rounds: number = 2,
-    providers?: string[]
-  ): Promise<DebateResult> {
-    const startTime = Date.now();
-    const targetProviders = this.selectProviders(providers);
-    const debateRounds: DebateResult['rounds'] = [];
-
-    // Minimum 2 providers for a debate
-    if (targetProviders.length < 2) {
-      // Single-provider fallback - just do a think
-      const thinkResult = await this.think(topic, targetProviders);
-      return {
-        topic,
-        rounds: [{
-          round: 1,
-          perspectives: thinkResult.perspectives,
-        }],
-        synthesis: thinkResult.synthesis || thinkResult.perspectives[0]?.response || '',
-        conclusion: thinkResult.perspectives[0]?.response || 'No conclusion available',
-        totalDurationMs: Date.now() - startTime,
-      };
-    }
-
-    let previousResponses: string[] = [];
-
-    for (let round = 1; round <= rounds; round++) {
-      const roundPrompt = round === 1
-        ? this.buildInitialDebatePrompt(topic)
-        : this.buildFollowUpDebatePrompt(topic, previousResponses, round);
-
-      const perspectives = this.config.parallel
-        ? await Promise.all(targetProviders.map(p => this.queryProvider(p, roundPrompt)))
-        : await this.querySequentially(targetProviders, roundPrompt);
-
-      debateRounds.push({ round, perspectives });
-      previousResponses = perspectives
-        .filter(p => p.success)
-        .map(p => `[${p.provider}]: ${p.response}`);
-    }
-
-    // Final synthesis
-    const allPerspectives = debateRounds.flatMap(r => r.perspectives);
-    const synthesis = this.synthesizePerspectives(allPerspectives);
-    const conclusion = this.generateConclusion(topic, debateRounds);
-
-    return {
-      topic,
-      rounds: debateRounds,
-      synthesis,
-      conclusion,
-      totalDurationMs: Date.now() - startTime,
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper Methods
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Select providers to query based on availability and preferences
-   */
-  private selectProviders(requested?: string[]): string[] {
-    const available = this.status.providers;
-
-    if (!this.status.available || available.length === 0) {
-      // If MultiLLM unavailable but Claude fallback enabled, return claude
-      if (this.config.claudeFallback) {
-        return ['claude'];
-      }
-      return [];
-    }
-
-    if (requested && requested.length > 0) {
-      // Filter requested to only available
-      return requested.filter(p =>
-        available.map(a => a.toLowerCase()).includes(p.toLowerCase())
-      );
-    }
-
-    // Use preferred providers if available, otherwise all
-    const preferred = this.config.preferredProviders.filter(p =>
-      available.map(a => a.toLowerCase()).includes(p.toLowerCase())
-    );
-
-    return preferred.length > 0 ? preferred : available;
-  }
-
-  /**
-   * Query providers sequentially
-   */
-  private async querySequentially(
-    providers: string[],
-    prompt: string
-  ): Promise<ProviderPerspective[]> {
-    const results: ProviderPerspective[] = [];
-    for (const provider of providers) {
-      results.push(await this.queryProvider(provider, prompt));
-    }
-    return results;
-  }
-
-  /**
-   * Build initial debate prompt
-   */
-  private buildInitialDebatePrompt(topic: string): string {
-    return `You are participating in a multi-perspective analysis.
-
-TOPIC: ${topic}
-
-Provide your perspective on this topic. Be specific and actionable.
-Consider trade-offs, risks, and alternatives.
-Keep your response focused and under 300 words.`;
-  }
-
-  /**
-   * Build follow-up debate prompt with previous responses
-   */
-  private buildFollowUpDebatePrompt(
-    topic: string,
-    previousResponses: string[],
-    round: number
-  ): string {
-    return `You are participating in a multi-perspective analysis (Round ${round}).
-
-TOPIC: ${topic}
-
-PREVIOUS PERSPECTIVES:
-${previousResponses.join('\n\n')}
-
-Now respond to the other perspectives. Do you agree? Disagree?
-What did they miss? What would you add or modify?
-Keep your response focused and under 200 words.`;
-  }
-
-  /**
-   * Synthesize multiple perspectives into a summary
-   */
-  private synthesizePerspectives(perspectives: ProviderPerspective[]): string {
-    const successful = perspectives.filter(p => p.success);
-    if (successful.length === 0) return 'No successful responses to synthesize.';
-    if (successful.length === 1) return successful[0].response;
-
-    // Build synthesis summary
-    const points = successful.map(p => `- [${p.provider}]: ${this.extractKeyPoints(p.response)}`);
-
-    return `## Think Tank Synthesis
-
-### Perspectives
-${points.join('\n')}
-
-### Key Themes
-${this.identifyCommonThemes(successful)}`;
-  }
-
-  /**
-   * Extract key points from a response (first 100 chars)
-   */
-  private extractKeyPoints(response: string): string {
-    const firstSentence = response.split(/[.!?]/)[0];
-    return firstSentence.slice(0, 150) + (firstSentence.length > 150 ? '...' : '');
-  }
-
-  /**
-   * Identify common themes across perspectives
-   */
-  private identifyCommonThemes(perspectives: ProviderPerspective[]): string {
-    // Simple keyword analysis
-    const keywords = new Map<string, number>();
-    const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between', 'under', 'again', 'further', 'then', 'once', 'and', 'but', 'or', 'nor', 'so', 'yet', 'both', 'either', 'neither', 'not', 'only', 'own', 'same', 'than', 'too', 'very', 'just', 'also', 'now', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'any', 'some', 'no', 'none', 'such', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'it', 'its', 'if', 'your', 'you', 'i', 'we', 'they', 'them', 'their', 'our', 'my', 'me', 'he', 'she', 'him', 'her', 'his']);
-
-    for (const p of perspectives) {
-      const words = p.response.toLowerCase().match(/\b\w{4,}\b/g) || [];
-      for (const word of words) {
-        if (!stopWords.has(word)) {
-          keywords.set(word, (keywords.get(word) || 0) + 1);
-        }
-      }
-    }
-
-    // Get top themes
-    const sorted = Array.from(keywords.entries())
-      .filter(([_, count]) => count >= perspectives.length)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([word]) => word);
-
-    return sorted.length > 0
-      ? `Common themes: ${sorted.join(', ')}`
-      : 'Perspectives offer diverse, non-overlapping viewpoints.';
-  }
-
-  /**
-   * Generate final conclusion from debate
-   */
-  private generateConclusion(topic: string, rounds: DebateResult['rounds']): string {
-    const lastRound = rounds[rounds.length - 1];
-    if (!lastRound) return 'No conclusion available.';
-
-    const successfulResponses = lastRound.perspectives.filter(p => p.success);
-    if (successfulResponses.length === 0) return 'No successful final responses.';
-
-    // Take the most comprehensive final response
-    const longest = successfulResponses.reduce((a, b) =>
-      a.response.length > b.response.length ? a : b
-    );
-
-    return `Based on ${rounds.length} rounds of analysis on "${topic}", the think tank concludes:
-
-${longest.response}
-
-[Primary perspective from: ${longest.provider}]`;
+    return this.detectMultiLLM().providers;
   }
 }
 
-// -----------------------------------------------------------------------------
-// Factory Function
-// -----------------------------------------------------------------------------
+// Export singleton instance for easy use
+export const multiLLMBridge = new MultiLLMBridge();
 
-/**
- * Create a MultiLLMBridge instance with optional config
- */
-export function createThinkTank(config?: Partial<ThinkTankConfig>): MultiLLMBridge {
-  return new MultiLLMBridge(config);
+// Export convenience functions
+export function think(question: string): Promise<ThinkResult> {
+  return multiLLMBridge.think(question);
 }
 
-/**
- * Quick check if MultiLLM is available
- */
-export function detectMultiLLM(): MultiLLMStatus {
-  const bridge = new MultiLLMBridge();
-  return bridge.getStatus();
+export function debate(topic: string, rounds?: number): Promise<DebateResult> {
+  return multiLLMBridge.debate(topic, rounds);
+}
+
+export function isMultiLLMAvailable(): boolean {
+  return multiLLMBridge.isAvailable();
 }
