@@ -25,16 +25,35 @@ import { homedir } from "os";
 import { join } from "path";
 import { existsSync, readFileSync } from "fs";
 
-// Load .env from user home directory
-const envPath = join(homedir(), '.env');
-if (existsSync(envPath)) {
-  const envContent = await Bun.file(envPath).text();
-  envContent.split('\n').forEach(line => {
-    const [key, value] = line.split('=');
-    if (key && value && !key.startsWith('#')) {
-      process.env[key.trim()] = value.trim();
-    }
-  });
+// Load .env from PAI_DIR or user home directory
+const loadEnvFile = async (path: string) => {
+  if (existsSync(path)) {
+    const envContent = await Bun.file(path).text();
+    envContent.split('\n').forEach(line => {
+      const [key, ...valueParts] = line.split('=');
+      const value = valueParts.join('='); // Handle values with = in them
+      if (key && value && !key.startsWith('#')) {
+        process.env[key.trim()] = value.trim();
+      }
+    });
+    return true;
+  }
+  return false;
+};
+
+// Check PAI_DIR/.env first, then ~/.claude/.env, then ~/.env
+const paiDir = process.env.PAI_DIR || join(homedir(), '.claude');
+const envPaths = [
+  join(paiDir, '.env'),
+  join(homedir(), '.claude', '.env'),
+  join(homedir(), '.env')
+];
+
+for (const envPath of envPaths) {
+  if (await loadEnvFile(envPath)) {
+    console.log(`📄 Loaded environment from: ${envPath}`);
+    break;
+  }
 }
 
 const PORT = parseInt(process.env.VOICE_SERVER_PORT || process.env.PORT || "8888");
