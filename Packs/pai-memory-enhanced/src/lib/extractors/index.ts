@@ -11,6 +11,8 @@
  * - AutoPromoter: Promote hypotheses to facts based on observation count
  * - ContextInjector: Inject relevant memories at session start
  * - SemanticSearch: Query memories by semantic similarity
+ * - PatternFinder: Cross-session pattern detection
+ * - SleepSynthesis: Unconscious processing with MultiLLM consensus
  */
 
 export * from './SessionExtractor';
@@ -22,3 +24,5 @@ export * from './SimilarityMerger';
 export * from './AutoPromoter';
 export * from './ContextInjector';
 export * from './SemanticSearch';
+export * from './PatternFinder';
+export * from './SleepSynthesis';
