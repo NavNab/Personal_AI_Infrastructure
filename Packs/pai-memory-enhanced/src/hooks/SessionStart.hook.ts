@@ -20,6 +20,7 @@ export interface SessionStartResult {
   bootstrapSlice: BootstrapSlice;
   factCount: number;
   openHypotheses: number;
+  actionItemCount: number; // Pending work / resume items
   hasHandoff: boolean;
   memoryContext: string; // Injected memory context
 }
@@ -86,6 +87,7 @@ export async function sessionStartHook(): Promise<SessionStartResult> {
     bootstrapSlice,
     factCount: factStore.count(),
     openHypotheses: hypothesisStore.list('open').length,
+    actionItemCount: relevantContext.actionItems.length,
     hasHandoff: !!latestHandoff,
     memoryContext,
   };
@@ -97,6 +99,11 @@ export function formatBootstrapSummary(result: SessionStartResult): string {
     `Facts: ${result.factCount}`,
     `Open hypotheses: ${result.openHypotheses}`,
   ];
+
+  // Highlight action items if any exist (most important)
+  if (result.actionItemCount > 0) {
+    lines.push(`⚡ Pending work: ${result.actionItemCount} item${result.actionItemCount > 1 ? 's' : ''}`);
+  }
 
   if (result.hasHandoff && result.bootstrapSlice.latestHandoff) {
     const h = result.bootstrapSlice.latestHandoff;
