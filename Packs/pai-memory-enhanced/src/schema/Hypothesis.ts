@@ -7,6 +7,7 @@
 import type { Cue } from './Cue';
 
 export type HypothesisStatus = 'open' | 'promoted' | 'expired' | 'closed';
+export type HypothesisPriority = 'normal' | 'resume' | 'action-needed' | 'urgent';
 
 export interface Hypothesis {
   timestamp: string; // ISO 8601
@@ -16,6 +17,7 @@ export interface Hypothesis {
   expiresOrdinal: number; // Day ordinal when expires
   status: HypothesisStatus;
   observationCount: number; // For confidence calculation
+  priority?: HypothesisPriority; // Priority level for surfacing (default: normal)
 }
 
 /**
@@ -32,7 +34,8 @@ export function createHypothesis(
   statement: string,
   expiryDays: number = 7,
   cues: Cue[] = [],
-  tags: string[] = []
+  tags: string[] = [],
+  priority: HypothesisPriority = 'normal'
 ): Hypothesis {
   const today = dayOrdinal();
   return {
@@ -43,7 +46,40 @@ export function createHypothesis(
     expiresOrdinal: today + Math.max(1, expiryDays),
     status: 'open',
     observationCount: 1,
+    priority,
   };
+}
+
+/**
+ * Check if hypothesis is high-priority (should always surface)
+ */
+export function isHighPriority(hypothesis: Hypothesis): boolean {
+  return hypothesis.priority === 'resume' ||
+         hypothesis.priority === 'action-needed' ||
+         hypothesis.priority === 'urgent';
+}
+
+/**
+ * Detect if a hypothesis statement indicates resume/action-needed
+ * Used for legacy hypotheses without explicit priority
+ */
+export function detectPriority(statement: string): HypothesisPriority {
+  const lowerStatement = statement.toLowerCase();
+  if (lowerStatement.includes('resume reminder') ||
+      lowerStatement.includes('continue with') ||
+      lowerStatement.includes('pending')) {
+    return 'resume';
+  }
+  if (lowerStatement.includes('action needed') ||
+      lowerStatement.includes('blocked') ||
+      lowerStatement.includes('awaiting')) {
+    return 'action-needed';
+  }
+  if (lowerStatement.includes('urgent') ||
+      lowerStatement.includes('critical')) {
+    return 'urgent';
+  }
+  return 'normal';
 }
 
 /**

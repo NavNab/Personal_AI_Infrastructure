@@ -15,7 +15,8 @@ import { FactStore } from '../../storage/FactStore';
 import { HypothesisStore } from '../../storage/HypothesisStore';
 import { ProjectStore } from '../../storage/ProjectStore';
 import type { Fact } from '../../schema/Fact';
-import type { Hypothesis } from '../../schema/Hypothesis';
+import type { Hypothesis, HypothesisPriority } from '../../schema/Hypothesis';
+import { isHighPriority, detectPriority } from '../../schema/Hypothesis';
 
 /**
  * Context ready for injection into session
@@ -31,6 +32,11 @@ export interface InjectedContext {
     statement: string;
     observationCount: number;
     tags: string[];
+  }>;
+  actionItems: Array<{
+    statement: string;
+    priority: HypothesisPriority;
+    observationCount: number;
   }>;
   projectContext?: {
     name: string;
@@ -259,6 +265,29 @@ export function getRelevantContext(
     })
     .sort((a, b) => b.observationCount - a.observationCount);
 
+  // Extract action items (resume/pending/urgent) regardless of confidence
+  // These are surfaced even if they only have 1 observation
+  const actionItems = openHypotheses
+    .filter((h) => {
+      const priority = h.priority || detectPriority(h.statement);
+      return priority !== 'normal';
+    })
+    .map((h) => ({
+      statement: h.statement,
+      priority: (h.priority || detectPriority(h.statement)) as HypothesisPriority,
+      observationCount: h.observationCount,
+    }))
+    .sort((a, b) => {
+      // Sort by priority: urgent > action-needed > resume
+      const priorityOrder: Record<HypothesisPriority, number> = {
+        urgent: 0,
+        'action-needed': 1,
+        resume: 2,
+        normal: 3,
+      };
+      return priorityOrder[a.priority] - priorityOrder[b.priority];
+    });
+
   // Get active project (from store or detected)
   const activeProject = projectStore.getActive();
   const projectContext = activeProject
@@ -287,6 +316,7 @@ export function getRelevantContext(
       observationCount: h.observationCount,
       tags: h.tags,
     })),
+    actionItems,
     projectContext,
     workingDir,
     relevanceFilter: detectedProject?.name || (keywords.length > 0 ? keywords.join(', ') : undefined),
@@ -302,6 +332,17 @@ export function formatContextForInjection(context: InjectedContext): string {
   // Header
   lines.push('=== Memory Context ===');
   lines.push('');
+
+  // Action Items / Pending Work - ALWAYS show first (most important)
+  if (context.actionItems.length > 0) {
+    lines.push('**⚡ Pending Work:**');
+    for (const item of context.actionItems) {
+      const priorityIcon = item.priority === 'urgent' ? '🔴' :
+                          item.priority === 'action-needed' ? '🟠' : '🔵';
+      lines.push(`- ${priorityIcon} ${item.statement}`);
+    }
+    lines.push('');
+  }
 
   // Validated Facts
   if (context.facts.length > 0) {
